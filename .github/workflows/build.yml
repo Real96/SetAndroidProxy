@@ -2,7 +2,16 @@ name: Build SetProxy
 
 on:
   push:
+    branches: ["**"]
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+# run one build at a time, so two quick pushes can't delete each other's release
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -22,7 +31,29 @@ jobs:
           # copy the script, converting any Windows line endings
           sed 's/\r$//' setproxy.sh > out/setproxy.sh
 
-      - uses: actions/upload-artifact@v7
-        with:
-          name: setproxy
-          path: out/
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="latest"
+
+          # delete the previous release together with its tag
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Deleting previous release"
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+
+          # if the tag is still there (e.g. left without a release), delete it too,
+          # otherwise the new release would reuse it and point to an old commit
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            echo "Deleting leftover tag"
+            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
+          fi
+
+          # create the new release; this also creates the tag on the current commit
+          gh release create "$TAG" out/setproxy.dex out/setproxy.sh \
+            --target "$GITHUB_SHA" \
+            --title "SetAndroidProxy" \
+            --notes "Built from commit ${GITHUB_SHA:0:7}" \
+            --latest
