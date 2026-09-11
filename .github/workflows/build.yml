@@ -1,0 +1,28 @@
+name: Build SetProxy
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build
+        run: |
+          # use the most recent Android build-tools already installed on the runner
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)
+          echo "d8 from: $BUILD_TOOLS"
+          mkdir -p classes out
+          javac -source 8 -target 8 -d classes SetProxy.java
+          "${BUILD_TOOLS}d8" --min-api 30 --output out classes/*.class
+          mv out/classes.dex out/setproxy.dex
+          # copy the script, converting any Windows line endings
+          sed 's/\r$//' setproxy.sh > out/setproxy.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: setproxy
+          path: out/
