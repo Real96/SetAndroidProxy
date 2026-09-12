@@ -11,4 +11,4 @@ This tool will let you set Android WiFi proxy from Termux
 ## Usage
 * Check your current WiFi setup: `su -c 'sh /data/local/tmp/setproxy.sh status'`
 * Set the proxy: `su -c 'sh /data/local/tmp/setproxy.sh <ip> <port> [*google.com,*reddit.com]'`
-* Delete the proxy setup: `su -c 'sh /data/local/tmp/setproxy.sh off'`
+* Remove the proxy: `su -c 'sh /data/local/tmp/setproxy.sh off'`
