@@ -14,6 +14,7 @@ import java.util.List;
  * compiles with a plain javac, without android.jar.
  *
  * Usage: SetProxy HOST PORT [exclusion1,exclusion2,...]
+ *        SetProxy pac URL
  *        SetProxy off
  *        SetProxy status
  */
@@ -39,8 +40,10 @@ public class SetProxy {
     private static int run(String[] args) throws Exception {
         boolean off = args.length > 0 && args[0].equals("off");
         boolean status = args.length > 0 && args[0].equals("status");
+        boolean pac = args.length > 0 && args[0].equals("pac");
         if (args.length == 0 || (!off && !status && args.length < 2)) {
-            System.err.println("Usage: SetProxy HOST PORT [comma,separated,exclusions] | off | status");
+            System.err.println("Usage: SetProxy HOST PORT [comma,separated,exclusions]"
+                    + " | pac URL | off | status");
             return 1;
         }
 
@@ -61,7 +64,17 @@ public class SetProxy {
 
         Class<?> proxyInfoClass = Class.forName("android.net.ProxyInfo");
         Object proxy = null;
-        if (!off) {
+        if (pac) {
+            // Android accepts any PAC URL without checking it, so validate it here
+            if (!isPacUrl(args[1])) {
+                System.err.println("Invalid PAC URL: an absolute http:// or https:// address "
+                        + "is required, e.g. http://192.168.1.50/proxy.pac");
+                return 1;
+            }
+            Class<?> uriClass = Class.forName("android.net.Uri");
+            Object uri = uriClass.getMethod("parse", String.class).invoke(null, args[1]);
+            proxy = proxyInfoClass.getMethod("buildPacProxy", uriClass).invoke(null, uri);
+        } else if (!off) {
             int port = Integer.parseInt(args[1]);
             List<String> exclusions = new ArrayList<String>();
             if (args.length > 2) {
@@ -82,7 +95,8 @@ public class SetProxy {
                 return 1;
             }
         }
-        // setHttpProxy(null) means "no proxy"
+        // setHttpProxy(null) means "no proxy"; it switches the network between the
+        // NONE, STATIC and PAC modes on its own, based on the ProxyInfo it receives
         config.getClass().getMethod("setHttpProxy", proxyInfoClass).invoke(config, proxy);
 
         // "save" is the call used by the Settings app: it saves the network and, if it
@@ -146,6 +160,12 @@ public class SetProxy {
         if (proxy == null) {
             return "no proxy";
         }
+        // check the PAC URL first: a PAC proxy also carries a local host and port,
+        // which would otherwise be mistaken for a manual proxy
+        String pacUrl = pacUrl(proxy);
+        if (pacUrl != null) {
+            return pacUrl;
+        }
         Object host = get(proxy, "getHost");
         if (host == null || host.toString().isEmpty()) {
             return proxy.toString();
@@ -161,6 +181,33 @@ public class SetProxy {
             sb.append(')');
         }
         return sb.toString();
+    }
+
+    /** PAC URL of the proxy, or null if it is not an auto-config proxy. */
+    private static String pacUrl(Object proxy) {
+        try {
+            Object url = get(proxy, "getPacFileUrl");
+            // an unset PAC URL is Uri.EMPTY, whose toString is empty
+            if (url != null && !url.toString().isEmpty()) {
+                return url.toString();
+            }
+        } catch (Exception e) {
+            // method not available on this Android version: not a PAC proxy
+        }
+        return null;
+    }
+
+    /** PAC URLs must be absolute http/https addresses with a host. */
+    private static boolean isPacUrl(String url) {
+        try {
+            java.net.URI u = new java.net.URI(url);
+            String scheme = u.getScheme();
+            return u.isAbsolute()
+                    && u.getHost() != null
+                    && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme));
+        } catch (java.net.URISyntaxException e) {
+            return false;
+        }
     }
 
     /** Same validation Android applies before using the proxy. */
